@@ -608,14 +608,15 @@ type OpenIdConfig struct {
 
 // DeploymentConfig provides details on how Kiali was deployed.
 type DeploymentConfig struct {
-	AccessibleNamespaces []string                 // this is no longer part of the actual config - we will generate this in Unmarshal()
-	ClusterWideAccess    bool                     `yaml:"cluster_wide_access,omitempty"`
-	ClusterNameOverrides map[string]string        `yaml:"cluster_name_overrides,omitempty"`
-	DiscoverySelectors   DiscoverySelectorsConfig `yaml:"discovery_selectors,omitempty"`
-	InstanceName         string                   `yaml:"instance_name"`
-	Namespace            string                   `yaml:"namespace,omitempty"` // Kiali deployment namespace
-	TLSConfig            DeploymentTLSConfig      `yaml:"tls_config,omitempty" json:"tlsConfig,omitempty"`
-	ViewOnlyMode         bool                     `yaml:"view_only_mode,omitempty"`
+	AccessibleNamespaces       []string                 // this is no longer part of the actual config - we will generate this in Unmarshal()
+	ClusterWideAccess          bool                     `yaml:"cluster_wide_access,omitempty"`
+	ClusterNameOverrides       map[string]string        `yaml:"cluster_name_overrides,omitempty"`
+	DiscoverySelectors         DiscoverySelectorsConfig `yaml:"discovery_selectors,omitempty"`
+	InstanceName               string                   `yaml:"instance_name"`
+	MetricClusterNameMapping   map[string]string        `yaml:"metric_cluster_name_mapping,omitempty"`
+	Namespace                  string                   `yaml:"namespace,omitempty"` // Kiali deployment namespace
+	TLSConfig                  DeploymentTLSConfig      `yaml:"tls_config,omitempty" json:"tlsConfig,omitempty"`
+	ViewOnlyMode               bool                     `yaml:"view_only_mode,omitempty"`
 }
 
 // DeploymentTLSConfig describes the TLS policy source and explicit policy values.
