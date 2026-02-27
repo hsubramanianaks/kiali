@@ -81,7 +81,7 @@ func (in *SvcService) GetServiceList(ctx context.Context, criteria ServiceCriter
 				return nil, err
 			}
 
-			if errors.IsNotFound(err) || errors.IsForbidden(err) {
+			if errors.IsNotFound(err) || errors.IsForbidden(err) || IsAccessibleError(err) {
 				// If a cluster is not found or not accessible, then we skip it
 				log.Debugf("Error while accessing to cluster [%s]: %s", cluster, err.Error())
 				continue
