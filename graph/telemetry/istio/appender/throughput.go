@@ -85,7 +85,7 @@ func (a ThroughputAppender) appendGraph(ctx context.Context, trafficMap graph.Tr
 		int(duration.Seconds()), // range duration for the query
 		groupBy)
 	vector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-	a.populateThroughputMap(ctx, throughputMap, &vector, gi.Conf)
+	a.populateThroughputMap(ctx, throughputMap, &vector, gi.Conf, gi.Vendor.ClusterNameMapping)
 
 	// 2) query for requests originating from a workload inside of the namespace
 	query = fmt.Sprintf(`sum(rate(%s{%s,source_workload_namespace="%s"}[%vs])) by (%s) > 0`,
@@ -95,7 +95,7 @@ func (a ThroughputAppender) appendGraph(ctx context.Context, trafficMap graph.Tr
 		int(duration.Seconds()), // range duration for the query
 		groupBy)
 	vector = graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-	a.populateThroughputMap(ctx, throughputMap, &vector, gi.Conf)
+	a.populateThroughputMap(ctx, throughputMap, &vector, gi.Conf, gi.Vendor.ClusterNameMapping)
 
 	applyThroughput(trafficMap, throughputMap)
 }
@@ -111,7 +111,7 @@ func applyThroughput(trafficMap graph.TrafficMap, throughputMap map[string]float
 	}
 }
 
-func (a ThroughputAppender) populateThroughputMap(ctx context.Context, throughputMap map[string]float64, vector *model.Vector, conf *config.Config) {
+func (a ThroughputAppender) populateThroughputMap(ctx context.Context, throughputMap map[string]float64, vector *model.Vector, conf *config.Config, clusterNameMapping map[string]string) {
 	zl := log.FromContext(ctx)
 
 	for _, s := range *vector {
@@ -142,7 +142,7 @@ func (a ThroughputAppender) populateThroughputMap(ctx context.Context, throughpu
 		destSvc := string(lDestSvc)
 
 		// handle clusters
-		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk)
+		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk, clusterNameMapping)
 
 		if util.IsBadSourceTelemetry(sourceCluster, sourceClusterOk, sourceWlNs, sourceWl, sourceApp) {
 			continue

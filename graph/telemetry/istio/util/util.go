@@ -17,10 +17,11 @@ var (
 	egressHost        string
 )
 
-// HandleClusters just sets source an dest cluster to unknown if it is not supplied on the telemetry
-// TODO: Starting in Istio 1.9 source_cluster and destination_cluster are always reported.  So, this
-// function can be removed when the Kiali version can assume Istio 1.9 or later.
-func HandleClusters(lSourceCluster model.LabelValue, sourceClusterOk bool, lDestCluster model.LabelValue, destClusterOk bool) (sourceCluster, destCluster string) {
+// HandleClusters sets source and dest cluster from telemetry labels, applying
+// any clusterNameMapping to translate metric cluster IDs (e.g., istiod CLUSTER_ID)
+// to Kiali-recognized cluster names. When clusterNameMapping is nil, no
+// translation occurs (backward compatible).
+func HandleClusters(lSourceCluster model.LabelValue, sourceClusterOk bool, lDestCluster model.LabelValue, destClusterOk bool, clusterNameMapping map[string]string) (sourceCluster, destCluster string) {
 	if sourceClusterOk {
 		sourceCluster = string(lSourceCluster)
 	} else {
@@ -31,6 +32,16 @@ func HandleClusters(lSourceCluster model.LabelValue, sourceClusterOk bool, lDest
 	} else {
 		destCluster = graph.Unknown
 	}
+
+	if len(clusterNameMapping) > 0 {
+		if mapped, ok := clusterNameMapping[sourceCluster]; ok {
+			sourceCluster = mapped
+		}
+		if mapped, ok := clusterNameMapping[destCluster]; ok {
+			destCluster = mapped
+		}
+	}
+
 	return sourceCluster, destCluster
 }
 

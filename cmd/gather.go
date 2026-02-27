@@ -217,6 +217,8 @@ func newGatherCmd(conf *config.Config) *cobra.Command {
 					}
 				}
 
+				istioInfo := istioappender.NewGlobalIstioInfo()
+				istioInfo.ClusterNameMapping = layer.Mesh.GetClusterNameMapping(ctx)
 				graphistio.BuildNamespacesTrafficMap(ctx, graph.TelemetryOptions{
 					CommonOptions: graph.CommonOptions{
 						QueryTime: time.Now().Unix(),
@@ -230,7 +232,7 @@ func newGatherCmd(conf *config.Config) *cobra.Command {
 					AccessibleNamespaces: accessibleNamespaces,
 					Appenders:            graph.RequestedAppenders{All: true},
 					Namespaces:           namespaceMap,
-				}, graph.NewGlobalInfo(layer, prom, conf, discovery.Clusters(), istioappender.NewGlobalIstioInfo()))
+				}, graph.NewGlobalInfo(layer, prom, conf, discovery.Clusters(), istioInfo))
 			}
 
 			return nil

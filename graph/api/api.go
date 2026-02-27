@@ -80,7 +80,9 @@ func GraphNamespaces(ctx context.Context, business *business.Layer, prom prometh
 func graphNamespacesIstio(ctx context.Context, business *business.Layer, prom prometheus.ClientInterface, o graph.Options) (code int, graphConfig interface{}, trafficMap graph.TrafficMap) {
 	clusters := business.Mesh.Clusters()
 	// Create a 'global' object to store the business. Global only to the request.
-	globalInfo := graph.NewGlobalInfo(business, prom, config.Get(), clusters, appender.NewGlobalIstioInfo())
+	istioInfo := appender.NewGlobalIstioInfo()
+	istioInfo.ClusterNameMapping = business.Mesh.GetClusterNameMapping(ctx)
+	globalInfo := graph.NewGlobalInfo(business, prom, config.Get(), clusters, istioInfo)
 
 	trafficMap = istio.BuildNamespacesTrafficMap(ctx, o.TelemetryOptions, globalInfo)
 
@@ -129,7 +131,9 @@ func GraphNode(ctx context.Context, business *business.Layer, prom prometheus.Cl
 func graphNodeIstio(ctx context.Context, business *business.Layer, prom prometheus.ClientInterface, o graph.Options) (code int, graphConfig interface{}) {
 	// Create a 'global' object to store the business. Global only to the request.
 	clusters := business.Mesh.Clusters()
-	globalInfo := graph.NewGlobalInfo(business, prom, config.Get(), clusters, appender.NewGlobalIstioInfo())
+	istioInfo := appender.NewGlobalIstioInfo()
+	istioInfo.ClusterNameMapping = business.Mesh.GetClusterNameMapping(ctx)
+	globalInfo := graph.NewGlobalInfo(business, prom, config.Get(), clusters, istioInfo)
 	globalInfo.Business = business
 	globalInfo.PromClient = prom
 

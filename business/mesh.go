@@ -84,3 +84,9 @@ func (in *MeshService) GetMeshConfig() *models.MeshConfig {
 func (in *MeshService) Clusters() []models.KubeCluster {
 	return in.discovery.Clusters()
 }
+
+// GetClusterNameMapping returns a mapping from istiod CLUSTER_ID values to
+// Kiali cluster names. Returns nil when no translation is needed.
+func (in *MeshService) GetClusterNameMapping(ctx context.Context) map[string]string {
+	return in.discovery.GetClusterNameMapping(ctx)
+}

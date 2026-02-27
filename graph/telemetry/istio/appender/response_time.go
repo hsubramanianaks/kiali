@@ -90,7 +90,7 @@ func (a ResponseTimeAppender) appendGraph(ctx context.Context, trafficMap graph.
 				int(duration.Seconds()), // range duration for the query
 				groupBy)
 			incomingVector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-			a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf)
+			a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf, gi.Vendor.ClusterNameMapping)
 		}
 
 		// 1) Incoming: query destination telemetry to capture namespace services' incoming traffic
@@ -108,7 +108,7 @@ func (a ResponseTimeAppender) appendGraph(ctx context.Context, trafficMap graph.
 			int(duration.Seconds()), // range duration for the query
 			groupBy)
 		incomingVector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-		a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf)
+		a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf, gi.Vendor.ClusterNameMapping)
 
 		// 2) Outgoing: query source telemetry to capture namespace workloads' outgoing traffic
 		query = fmt.Sprintf(`sum(rate(%s{%s,source_workload_namespace="%s"}[%vs])) by (%s) / sum(rate(%s{%s,source_workload_namespace="%s"}[%vs])) by (%s) > 0`,
@@ -123,7 +123,7 @@ func (a ResponseTimeAppender) appendGraph(ctx context.Context, trafficMap graph.
 			int(duration.Seconds()), // range duration for the query
 			groupBy)
 		outgoingVector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-		a.populateResponseTimeMap(ctx, responseTimeMap, &outgoingVector, gi.Conf)
+		a.populateResponseTimeMap(ctx, responseTimeMap, &outgoingVector, gi.Conf, gi.Vendor.ClusterNameMapping)
 
 	} else {
 		zl.Trace().Msgf("Generating responseTime for quantile [%.2f]; namespace = %v", quantile, namespace)
@@ -141,7 +141,7 @@ func (a ResponseTimeAppender) appendGraph(ctx context.Context, trafficMap graph.
 				int(duration.Seconds()), // range duration for the query
 				groupBy)
 			incomingVector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-			a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf)
+			a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf, gi.Vendor.ClusterNameMapping)
 		}
 
 		// 1) Incoming: query destination telemetry to capture namespace services' incoming traffic
@@ -155,7 +155,7 @@ func (a ResponseTimeAppender) appendGraph(ctx context.Context, trafficMap graph.
 			int(duration.Seconds()), // range duration for the query
 			groupBy)
 		incomingVector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-		a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf)
+		a.populateResponseTimeMap(ctx, responseTimeMap, &incomingVector, gi.Conf, gi.Vendor.ClusterNameMapping)
 
 		// 2) Outgoing: query source telemetry to capture namespace workloads' outgoing traffic
 		query = fmt.Sprintf(`histogram_quantile(%.2f, sum(rate(%s{%s,source_workload_namespace="%s"}[%vs])) by (%s)) > 0`,
@@ -166,7 +166,7 @@ func (a ResponseTimeAppender) appendGraph(ctx context.Context, trafficMap graph.
 			int(duration.Seconds()), // range duration for the query
 			groupBy)
 		outgoingVector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), gi.Conf, a.Name())
-		a.populateResponseTimeMap(ctx, responseTimeMap, &outgoingVector, gi.Conf)
+		a.populateResponseTimeMap(ctx, responseTimeMap, &outgoingVector, gi.Conf, gi.Vendor.ClusterNameMapping)
 	}
 
 	applyResponseTime(trafficMap, responseTimeMap)
@@ -183,7 +183,7 @@ func applyResponseTime(trafficMap graph.TrafficMap, responseTimeMap map[string]f
 	}
 }
 
-func (a ResponseTimeAppender) populateResponseTimeMap(ctx context.Context, responseTimeMap map[string]float64, vector *model.Vector, conf *config.Config) {
+func (a ResponseTimeAppender) populateResponseTimeMap(ctx context.Context, responseTimeMap map[string]float64, vector *model.Vector, conf *config.Config, clusterNameMapping map[string]string) {
 	zl := log.FromContext(ctx)
 
 	skipRequestsGrpc := a.Rates.Grpc != graph.RateRequests
@@ -223,7 +223,7 @@ func (a ResponseTimeAppender) populateResponseTimeMap(ctx context.Context, respo
 		}
 
 		// handle clusters
-		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk)
+		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk, clusterNameMapping)
 
 		if util.IsBadSourceTelemetry(sourceCluster, sourceClusterOk, sourceWlNs, sourceWl, sourceApp) {
 			continue

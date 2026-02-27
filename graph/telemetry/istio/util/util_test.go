@@ -56,3 +56,36 @@ func TestAddScopeMultiSegment(t *testing.T) {
 	expected := `sum(rate(istio_requests_total{mesh_id="mesh1",reporter="destination",source_workload_namespace!="bookinfo",destination_service_namespace="bookinfo"}[60s])) by (source_cluster,source_workload_namespace,source_workload,source_canonical_service,source_canonical_revision,source_principal,destination_cluster,destination_service_namespace,destination_service_name,destination_workload_namespace,destination_workload,destination_canonical_service,destination_canonical_revision,destination_principal,connection_security_policy) > 0) OR (sum(rate(istio_tcp_sent_bytes_total{mesh_id="mesh1",reporter="destination",source_workload_namespace!="bookinfo",destination_service_namespace="bookinfo"}[60s])) by (source_cluster,source_workload_namespace,source_workload,source_canonical_service,source_canonical_revision,source_principal,destination_cluster,destination_service_namespace,destination_service_name,destination_workload_namespace,destination_workload,destination_canonical_service,destination_canonical_revision,destination_principal,connection_security_policy) > 0)`
 	assert.Equal(t, expected, scopedQuery)
 }
+
+func TestHandleClustersWithMapping(t *testing.T) {
+	assert := assert.New(t)
+
+	mapping := map[string]string{
+		"mcp-namespace-id": "overlay-cluster",
+	}
+
+	// With mapping, metric cluster IDs are translated to Kiali cluster names
+	src, dst := HandleClusters("mcp-namespace-id", true, "mcp-namespace-id", true, mapping)
+	assert.Equal("overlay-cluster", src)
+	assert.Equal("overlay-cluster", dst)
+
+	// Unknown metric IDs pass through unchanged
+	src, dst = HandleClusters("some-other-id", true, "mcp-namespace-id", true, mapping)
+	assert.Equal("some-other-id", src)
+	assert.Equal("overlay-cluster", dst)
+
+	// Nil mapping has no effect (backward compatible)
+	src, dst = HandleClusters("mcp-namespace-id", true, "mcp-namespace-id", true, nil)
+	assert.Equal("mcp-namespace-id", src)
+	assert.Equal("mcp-namespace-id", dst)
+
+	// Empty mapping has no effect
+	src, dst = HandleClusters("mcp-namespace-id", true, "mcp-namespace-id", true, map[string]string{})
+	assert.Equal("mcp-namespace-id", src)
+	assert.Equal("mcp-namespace-id", dst)
+
+	// Missing cluster labels default to "unknown"
+	src, dst = HandleClusters("", false, "", false, mapping)
+	assert.Equal("unknown", src)
+	assert.Equal("unknown", dst)
+}

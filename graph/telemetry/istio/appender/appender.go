@@ -28,6 +28,10 @@ type GlobalIstioInfo struct {
 	AmbientWaypoints any
 	// AppsMap contains application list items keyed by cluster:namespace
 	AppsMap map[string]map[string]*models.AppListItem
+	// ClusterNameMapping maps metric cluster IDs (istiod CLUSTER_ID) to Kiali
+	// cluster names. Used to translate Prometheus label values. Nil when no
+	// translation is needed.
+	ClusterNameMapping map[string]string
 	// ServiceEntryHosts maps composite keys (serviceEntryHostsKey:cluster:namespace) to service entry hosts
 	ServiceEntryHosts map[string]serviceEntryHosts
 	// ServiceLists caches service lists by cluster:namespace key

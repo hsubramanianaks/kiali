@@ -2979,3 +2979,104 @@ trustDomain: cluster.local
 	require.Len(meshClusters, 1)
 	require.Contains(meshClusters, "east")
 }
+
+// TestGetClusterNameMappingWithAnnotation verifies auto-discovery of cluster
+// name mapping when external CP manages a remote cluster matched via annotation.
+func TestGetClusterNameMappingWithAnnotation(t *testing.T) {
+	require := require.New(t)
+	conf := config.NewConfig()
+	conf.KubernetesConfig.ClusterName = "controlplane"
+
+	const configMapData = `accessLogFile: /dev/stdout
+enableAutoMtls: true
+rootNamespace: istio-system
+trustDomain: cluster.local
+`
+	istioConfigMap := &core_v1.ConfigMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "istio",
+			Namespace: "external-istiod",
+			Labels:    map[string]string{config.IstioRevisionLabel: "default"},
+		},
+		Data: map[string]string{"mesh": configMapData},
+	}
+
+	// External CP with CLUSTER_ID="mcp-namespace-id" that manages external clusters.
+	externalControlPlane := fakeIstiodDeployment("mcp-namespace-id", true)
+	externalControlPlane.Namespace = "external-istiod"
+	externalControlPlane.Name = "istiod"
+
+	controlPlaneClient := kubetest.NewFakeK8sClient(
+		kubetest.FakeNamespace("external-istiod"),
+		externalControlPlane,
+		istioConfigMap,
+		certtest.FakeIstioCertificateConfigMap("external-istiod"),
+	)
+
+	// Remote cluster "overlay-cluster" with annotation pointing to CP cluster "mcp-namespace-id".
+	overlayClient := kubetest.NewFakeK8sClient(
+		&core_v1.Namespace{ObjectMeta: v1.ObjectMeta{
+			Name:        "external-istiod",
+			Annotations: map[string]string{business.IstioControlPlaneClustersLabel: "mcp-namespace-id"},
+			Labels:      map[string]string{"kubernetes.io/metadata.name": "external-istiod"},
+		}},
+		kubetest.FakeNamespace("bookinfo"),
+	)
+
+	clients := map[string]kubernetes.ClientInterface{
+		"controlplane":    controlPlaneClient,
+		"overlay-cluster": overlayClient,
+	}
+
+	kialiCache := cache.NewTestingCacheWithClients(t, clients, *conf)
+	discovery := istio.NewDiscovery(clients, kialiCache, conf)
+	ctx := context.TODO()
+
+	mapping := discovery.GetClusterNameMapping(ctx)
+
+	// The external CP has ID="mcp-namespace-id" and manages "overlay-cluster"
+	// (via annotation). Since "mcp-namespace-id" != "overlay-cluster",
+	// the mapping should contain: "mcp-namespace-id" → "overlay-cluster"
+	require.NotNil(mapping, "Should have mapping when CLUSTER_ID != cluster name")
+	require.Equal("overlay-cluster", mapping["mcp-namespace-id"])
+}
+
+// TestGetClusterNameMappingStandardDeployment verifies that GetClusterNameMapping
+// returns nil for standard single-cluster or primary-remote deployments where
+// CLUSTER_ID matches the Kiali cluster name.
+func TestGetClusterNameMappingStandardDeployment(t *testing.T) {
+	require := require.New(t)
+	conf := config.NewConfig()
+	conf.KubernetesConfig.ClusterName = "east"
+
+	const configMapData = `accessLogFile: /dev/stdout
+enableAutoMtls: true
+rootNamespace: istio-system
+trustDomain: cluster.local
+`
+	istioConfigMap := &core_v1.ConfigMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "istio",
+			Namespace: "istio-system",
+			Labels:    map[string]string{config.IstioRevisionLabel: "default"},
+		},
+		Data: map[string]string{"mesh": configMapData},
+	}
+
+	k8s := kubetest.NewFakeK8sClient(
+		kubetest.FakeNamespace("istio-system"),
+		fakeIstiodDeployment("east", false),
+		istioConfigMap,
+		certtest.FakeIstioCertificateConfigMap("istio-system"),
+	)
+
+	clients := map[string]kubernetes.ClientInterface{"east": k8s}
+	kialiCache := cache.NewTestingCacheWithClients(t, clients, *conf)
+	discovery := istio.NewDiscovery(clients, kialiCache, conf)
+	ctx := context.TODO()
+
+	mapping := discovery.GetClusterNameMapping(ctx)
+
+	// Standard deployment: CLUSTER_ID == cluster name → no mapping needed
+	require.Nil(mapping, "Should return nil when no translation is needed")
+}

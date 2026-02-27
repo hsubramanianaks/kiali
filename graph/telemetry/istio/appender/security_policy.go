@@ -48,10 +48,10 @@ func (a SecurityPolicyAppender) AppendGraph(ctx context.Context, trafficMap grap
 		return
 	}
 
-	a.appendGraph(ctx, trafficMap, namespaceInfo.Namespace, globalInfo.PromClient, globalInfo.Conf)
+	a.appendGraph(ctx, trafficMap, namespaceInfo.Namespace, globalInfo.PromClient, globalInfo.Conf, globalInfo.Vendor.ClusterNameMapping)
 }
 
-func (a SecurityPolicyAppender) appendGraph(ctx context.Context, trafficMap graph.TrafficMap, namespace string, client prometheus.ClientInterface, conf *config.Config) {
+func (a SecurityPolicyAppender) appendGraph(ctx context.Context, trafficMap graph.TrafficMap, namespace string, client prometheus.ClientInterface, conf *config.Config, clusterNameMapping map[string]string) {
 	zl := log.FromContext(ctx)
 
 	zl.Trace().Msgf("Resolving security policy for namespace [%v], rates [%+v]", namespace, a.Rates)
@@ -232,13 +232,13 @@ func (a SecurityPolicyAppender) appendGraph(ctx context.Context, trafficMap grap
 	// create map to quickly look up securityPolicy
 	securityPolicyMap := make(map[string]PolicyRates)
 	principalMap := make(map[string]map[graph.MetadataKey]string)
-	a.populateSecurityPolicyMap(ctx, securityPolicyMap, principalMap, &outVector)
-	a.populateSecurityPolicyMap(ctx, securityPolicyMap, principalMap, &inVector)
+	a.populateSecurityPolicyMap(ctx, securityPolicyMap, principalMap, &outVector, clusterNameMapping)
+	a.populateSecurityPolicyMap(ctx, securityPolicyMap, principalMap, &inVector, clusterNameMapping)
 
 	applySecurityPolicy(trafficMap, securityPolicyMap, principalMap)
 }
 
-func (a SecurityPolicyAppender) populateSecurityPolicyMap(ctx context.Context, securityPolicyMap map[string]PolicyRates, principalMap map[string]map[graph.MetadataKey]string, vector *model.Vector) {
+func (a SecurityPolicyAppender) populateSecurityPolicyMap(ctx context.Context, securityPolicyMap map[string]PolicyRates, principalMap map[string]map[graph.MetadataKey]string, vector *model.Vector, clusterNameMapping map[string]string) {
 	zl := log.FromContext(ctx)
 
 	for _, s := range *vector {
@@ -285,7 +285,7 @@ func (a SecurityPolicyAppender) populateSecurityPolicyMap(ctx context.Context, s
 		val := float64(s.Value)
 
 		// handle clusters
-		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk)
+		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk, clusterNameMapping)
 
 		// don't inject a service node if any of:
 		// - destSvcName is not set

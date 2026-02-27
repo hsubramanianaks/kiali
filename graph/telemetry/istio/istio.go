@@ -375,7 +375,7 @@ func populateTrafficMap(ctx context.Context, trafficMap graph.TrafficMap, vector
 		}
 
 		// handle clusters
-		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk)
+		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk, globalInfo.Vendor.ClusterNameMapping)
 
 		if util.IsBadSourceTelemetry(sourceCluster, sourceClusterOk, sourceWlNs, sourceWl, sourceApp) {
 			continue

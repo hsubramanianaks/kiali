@@ -59,13 +59,13 @@ func (a AggregateNodeAppender) AppendGraph(ctx context.Context, trafficMap graph
 	}
 
 	if a.AggregateValue == "" {
-		a.appendGraph(ctx, trafficMap, namespaceInfo.Namespace, globalInfo.PromClient, globalInfo.Conf)
+		a.appendGraph(ctx, trafficMap, namespaceInfo.Namespace, globalInfo.PromClient, globalInfo.Conf, globalInfo.Vendor.ClusterNameMapping)
 	} else {
-		a.appendNodeGraph(ctx, trafficMap, namespaceInfo.Namespace, globalInfo.PromClient, globalInfo.Conf)
+		a.appendNodeGraph(ctx, trafficMap, namespaceInfo.Namespace, globalInfo.PromClient, globalInfo.Conf, globalInfo.Vendor.ClusterNameMapping)
 	}
 }
 
-func (a AggregateNodeAppender) appendGraph(ctx context.Context, trafficMap graph.TrafficMap, namespace string, client prometheus.ClientInterface, conf *config.Config) {
+func (a AggregateNodeAppender) appendGraph(ctx context.Context, trafficMap graph.TrafficMap, namespace string, client prometheus.ClientInterface, conf *config.Config, clusterNameMapping map[string]string) {
 	log.FromContext(ctx).Trace().Msgf("Resolving request aggregates for namespace=[%s], aggregate=[%s]", namespace, a.Aggregate)
 	duration := a.Namespaces[namespace].Duration
 
@@ -90,7 +90,7 @@ func (a AggregateNodeAppender) appendGraph(ctx context.Context, trafficMap graph
 		groupBy)
 	query := httpQuery
 	vector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), conf, a.Name())
-	a.injectAggregates(ctx, trafficMap, &vector, conf)
+	a.injectAggregates(ctx, trafficMap, &vector, conf, clusterNameMapping)
 
 	// 2) query for requests originating from a workload inside of the namespace
 	httpQuery = fmt.Sprintf(`sum(rate(%s{%s,source_workload_namespace="%s",%s!="unknown"}[%vs])) by (%s) > 0`,
@@ -102,10 +102,10 @@ func (a AggregateNodeAppender) appendGraph(ctx context.Context, trafficMap graph
 		groupBy)
 	query = httpQuery
 	vector = graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), conf, a.Name())
-	a.injectAggregates(ctx, trafficMap, &vector, conf)
+	a.injectAggregates(ctx, trafficMap, &vector, conf, clusterNameMapping)
 }
 
-func (a AggregateNodeAppender) appendNodeGraph(ctx context.Context, trafficMap graph.TrafficMap, namespace string, client prometheus.ClientInterface, conf *config.Config) {
+func (a AggregateNodeAppender) appendNodeGraph(ctx context.Context, trafficMap graph.TrafficMap, namespace string, client prometheus.ClientInterface, conf *config.Config, clusterNameMapping map[string]string) {
 	log.FromContext(ctx).Trace().Msgf("Resolving node request aggregates for namespace=[%s], aggregate=[%s=%s]", namespace, a.Aggregate, a.AggregateValue)
 	duration := a.Namespaces[namespace].Duration
 
@@ -128,10 +128,10 @@ func (a AggregateNodeAppender) appendNodeGraph(ctx context.Context, trafficMap g
 		groupBy)
 	query := httpQuery
 	vector := graph.PromQueryAppender(ctx, query, time.Unix(a.QueryTime, 0), client.API(), conf, a.Name())
-	a.injectAggregates(ctx, trafficMap, &vector, conf)
+	a.injectAggregates(ctx, trafficMap, &vector, conf, clusterNameMapping)
 }
 
-func (a AggregateNodeAppender) injectAggregates(ctx context.Context, trafficMap graph.TrafficMap, vector *model.Vector, conf *config.Config) {
+func (a AggregateNodeAppender) injectAggregates(ctx context.Context, trafficMap graph.TrafficMap, vector *model.Vector, conf *config.Config, clusterNameMapping map[string]string) {
 	skipRequestsGrpc := a.Rates.Grpc != graph.RateRequests
 	skipRequestsHttp := a.Rates.Http != graph.RateRequests
 
@@ -180,7 +180,7 @@ func (a AggregateNodeAppender) injectAggregates(ctx context.Context, trafficMap 
 		}
 
 		// handle clusters
-		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk)
+		sourceCluster, destCluster := util.HandleClusters(lSourceCluster, sourceClusterOk, lDestCluster, destClusterOk, clusterNameMapping)
 
 		if util.IsBadSourceTelemetry(sourceCluster, sourceClusterOk, sourceWlNs, sourceWl, sourceApp) {
 			continue

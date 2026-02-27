@@ -244,6 +244,7 @@ func sidecarInjectorConfigMapName(revision string) string {
 
 type MeshDiscovery interface {
 	Clusters() []models.KubeCluster
+	GetClusterNameMapping(ctx context.Context) map[string]string
 	GetClustersForMesh(ctx context.Context, cluster string) []string
 	GetControlPlaneNamespaces(ctx context.Context, cluster string) []string
 	GetRootNamespace(ctx context.Context, cluster, namespace string) string
@@ -313,6 +314,39 @@ func (in *Discovery) GetControlPlaneNamespaces(ctx context.Context, cluster stri
 	}
 
 	return maps.Keys(namespaces)
+}
+
+// GetClusterNameMapping returns a mapping from istiod CLUSTER_ID values to
+// Kiali cluster names. In standard deployments, CLUSTER_ID matches the Kiali
+// cluster name, so the mapping is empty. In external control plane deployments
+// (e.g., applink), the istiod's CLUSTER_ID may differ from the Kiali cluster
+// name derived from the remote cluster secret. This mapping enables translation
+// of Prometheus metric labels (source_cluster, destination_cluster) which use
+// CLUSTER_ID values, to Kiali-recognized cluster names.
+//
+// Returns nil when no translation is needed (all CLUSTER_IDs match cluster names).
+func (in *Discovery) GetClusterNameMapping(ctx context.Context) map[string]string {
+	mesh, err := in.Mesh(ctx)
+	if err != nil || mesh == nil {
+		return nil
+	}
+
+	mapping := map[string]string{}
+	for _, cp := range mesh.ControlPlanes {
+		// For each managed cluster, check if the CP's CLUSTER_ID differs
+		// from the managed cluster's Kiali name. When it does, we need
+		// a mapping so that metric labels can be translated.
+		for _, mc := range cp.ManagedClusters {
+			if cp.ID != mc.Name {
+				mapping[cp.ID] = mc.Name
+			}
+		}
+	}
+
+	if len(mapping) == 0 {
+		return nil
+	}
+	return mapping
 }
 
 // GetClustersForMesh returns all cluster names that belong to the same mesh
