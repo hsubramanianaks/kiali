@@ -522,9 +522,31 @@ func (in *Discovery) Mesh(ctx context.Context) (*models.Mesh, error) {
 		// If there's an istiod on it, then it's a controlplane cluster. Otherwise it is a remote mesh cluster
 		labels := map[string]string{config.IstioAppLabel: istiodAppLabelValue}
 		depList := &appsv1.DeploymentList{}
-		err = kubeCache.List(ctx, depList, ctrlclient.MatchingLabels(labels))
-		if err != nil {
-			return nil, err
+
+		if nsSelector := in.conf.ExternalServices.Istio.ControlPlaneNamespaceSelector; len(nsSelector) > 0 {
+			// Pre-filter: only scan namespaces matching the selector for istiod deployments
+			nsList := &corev1.NamespaceList{}
+			err = kubeCache.List(ctx, nsList, ctrlclient.MatchingLabels(nsSelector))
+			if err != nil {
+				return nil, err
+			}
+			for _, ns := range nsList.Items {
+				nsDepList := &appsv1.DeploymentList{}
+				err = kubeCache.List(ctx, nsDepList, ctrlclient.MatchingLabels(labels), ctrlclient.InNamespace(ns.Name))
+				if err != nil {
+					return nil, err
+				}
+				depList.Items = append(depList.Items, nsDepList.Items...)
+			}
+			if len(nsList.Items) > 0 {
+				log.Infof("Control plane namespace selector matched [%d] namespace(s) on cluster [%s], found [%d] istiod(s).", len(nsList.Items), cluster.Name, len(depList.Items))
+			}
+		} else {
+			// Default: scan all namespaces for istiod deployments
+			err = kubeCache.List(ctx, depList, ctrlclient.MatchingLabels(labels))
+			if err != nil {
+				return nil, err
+			}
 		}
 		istiods := depList.Items
 

@@ -440,6 +440,11 @@ type TracingConfig struct {
 //	a multi-control-plane deployment.
 type IstioConfig struct {
 	ComponentStatuses              ComponentStatuses `yaml:"component_status,omitempty" json:"componentStatuses,omitempty"`
+	// ControlPlaneNamespaceSelector restricts istiod discovery to namespaces matching
+	// the given label selector. When set, Kiali only scans namespaces whose labels
+	// match this selector for istiod deployments, instead of scanning all namespaces.
+	// When empty/nil, all namespaces are scanned (default behavior).
+	ControlPlaneNamespaceSelector  map[string]string `yaml:"control_plane_namespace_selector,omitempty" json:"controlPlaneNamespaceSelector,omitempty"`
 	GatewayAPIClasses              []GatewayAPIClass `yaml:"gateway_api_classes,omitempty" json:"gatewayApiClasses,omitempty"`
 	GatewayAPIClassesLabelSelector string            `yaml:"gateway_api_classes_label_selector,omitempty" json:"gatewayApiClassesLabelSelector,omitempty"`
 	IstioAPIEnabled                bool              `yaml:"istio_api_enabled" json:"istioApiEnabled"`
