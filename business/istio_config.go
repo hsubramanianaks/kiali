@@ -25,6 +25,7 @@ import (
 
 	"github.com/kiali/kiali/cache"
 	"github.com/kiali/kiali/config"
+	"github.com/kiali/kiali/istio"
 	"github.com/kiali/kiali/kubernetes"
 	"github.com/kiali/kiali/log"
 	"github.com/kiali/kiali/models"
@@ -35,15 +36,20 @@ import (
 const allResources string = "*"
 
 type IstioConfigService struct {
-	userClients         map[string]kubernetes.UserClientInterface
-	saClients           map[string]kubernetes.ClientInterface
 	conf                *config.Config
+	controlPlaneMonitor ControlPlaneMonitor
+	discovery           istio.MeshDiscovery
 	kialiCache          cache.KialiCache
 	businessLayer       *Layer
-	controlPlaneMonitor ControlPlaneMonitor
+	saClients           map[string]kubernetes.ClientInterface
+	userClients         map[string]kubernetes.UserClientInterface
 }
 
 type IstioConfigCriteria struct {
+	Cluster                       string
+	IncludeAuthorizationPolicies  bool
+	IncludeDestinationRules       bool
+	IncludeEnvoyFilters           bool
 	IncludeGateways               bool
 	IncludeK8sGateways            bool
 	IncludeK8sGRPCRoutes          bool
@@ -52,18 +58,15 @@ type IstioConfigCriteria struct {
 	IncludeK8sReferenceGrants     bool
 	IncludeK8sTCPRoutes           bool
 	IncludeK8sTLSRoutes           bool
-	IncludeVirtualServices        bool
-	IncludeDestinationRules       bool
+	IncludePeerAuthentications    bool
+	IncludeRequestAuthentications bool
 	IncludeServiceEntries         bool
 	IncludeSidecars               bool
-	IncludeAuthorizationPolicies  bool
-	IncludePeerAuthentications    bool
+	IncludeTelemetry              bool
+	IncludeVirtualServices        bool
+	IncludeWasmPlugins            bool
 	IncludeWorkloadEntries        bool
 	IncludeWorkloadGroups         bool
-	IncludeRequestAuthentications bool
-	IncludeEnvoyFilters           bool
-	IncludeWasmPlugins            bool
-	IncludeTelemetry              bool
 	LabelSelector                 string
 	WorkloadSelector              string
 }
@@ -137,11 +140,29 @@ var newSecurityConfigTypes = []schema.GroupVersionKind{
 	kubernetes.RequestAuthentications,
 }
 
-// GetIstioConfigMap returns a map of Istio config objects list per cluster
+// GetIstioConfigMap returns a map of Istio config objects list per cluster.
+// When criteria.Cluster is set, only clusters belonging to the same mesh
+// (same control plane) are queried. This enables multi-mesh deployments
+// where multiple control planes on the same cluster manage different
+// remote clusters. When criteria.Cluster is empty, all clusters are
+// queried (preserving backward compatibility).
 // @TODO this method should replace GetIstioConfigList
 func (in *IstioConfigService) GetIstioConfigMap(ctx context.Context, namespace string, criteria IstioConfigCriteria) (models.IstioConfigMap, error) {
 	istioConfigMap := models.IstioConfigMap{}
+
+	// Build the set of clusters to query. When a specific cluster is
+	// requested, scope to that cluster's mesh peers (clusters managed
+	// by the same control plane). Fall back to all clusters if mesh
+	// topology is unavailable.
+	meshClusters := in.resolveMeshClusters(ctx, criteria.Cluster)
+
 	for cluster := range in.userClients {
+		if meshClusters != nil {
+			if _, ok := meshClusters[cluster]; !ok {
+				continue
+			}
+		}
+
 		var (
 			singleClusterConfigList *models.IstioConfigList
 			err                     error
@@ -172,6 +193,27 @@ func (in *IstioConfigService) GetIstioConfigListForCluster(ctx context.Context, 
 	}
 
 	return in.GetIstioConfigListForNamespace(ctx, cluster, namespace, criteria)
+}
+
+// resolveMeshClusters returns the set of clusters to query for the given
+// target cluster. When the target cluster is part of a discovered mesh,
+// returns all clusters in that mesh. Returns nil when no scoping should
+// be applied (target cluster is empty or not found in any mesh).
+func (in *IstioConfigService) resolveMeshClusters(ctx context.Context, targetCluster string) map[string]bool {
+	if targetCluster == "" || in.discovery == nil {
+		return nil
+	}
+
+	meshClusters := in.discovery.GetClustersForMesh(ctx, targetCluster)
+	if meshClusters == nil {
+		return nil
+	}
+
+	clusterSet := make(map[string]bool, len(meshClusters))
+	for _, c := range meshClusters {
+		clusterSet[c] = true
+	}
+	return clusterSet
 }
 
 func (in *IstioConfigService) GetIstioConfigListForNamespace(ctx context.Context, cluster, namespace string, criteria IstioConfigCriteria) (*models.IstioConfigList, error) {

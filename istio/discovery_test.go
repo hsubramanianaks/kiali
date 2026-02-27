@@ -2852,3 +2852,130 @@ func TestNamespaceMapWithTagsAndClusterWideAccessFalse(t *testing.T) {
 	rootNs = discovery.GetRootNamespace(ctx, conf.KubernetesConfig.ClusterName, "travels")
 	require.Equal("istio-system", rootNs, "GetRootNamespace should work for namespace with tag label")
 }
+
+// TestGetClustersForMeshWithExternalControlPlane verifies that GetClustersForMesh
+// returns the correct set of clusters managed by the same control plane. This is
+// the multi-mesh scenario where two istiods on the same cluster manage different
+// remote overlay clusters.
+func TestGetClustersForMeshWithExternalControlPlane(t *testing.T) {
+	require := require.New(t)
+	conf := config.NewConfig()
+	conf.KubernetesConfig.ClusterName = "controlplane"
+
+	const configMapData = `accessLogFile: /dev/stdout
+enableAutoMtls: true
+rootNamespace: istio-system
+trustDomain: cluster.local
+`
+	istioConfigMap := &core_v1.ConfigMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "istio",
+			Namespace: "istio-system",
+			Labels:    map[string]string{config.IstioRevisionLabel: "default"},
+		},
+		Data: map[string]string{"mesh": configMapData},
+	}
+	istioConfigMapExternal := &core_v1.ConfigMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "istio",
+			Namespace: "external-istiod",
+			Labels:    map[string]string{config.IstioRevisionLabel: "default"},
+		},
+		Data: map[string]string{"mesh": configMapData},
+	}
+
+	externalControlPlane := fakeIstiodDeployment("dataplane", true)
+	externalControlPlane.Namespace = "external-istiod"
+	externalControlPlane.Name = "istiod"
+
+	controlPlaneClient := kubetest.NewFakeK8sClient(
+		kubetest.FakeNamespace("istio-system"),
+		kubetest.FakeNamespace("external-istiod"),
+		fakeIstiodDeployment("controlplane", false),
+		externalControlPlane,
+		istioConfigMap,
+		istioConfigMapExternal,
+		certtest.FakeIstioCertificateConfigMap("external-istiod"),
+		certtest.FakeIstioCertificateConfigMap("istio-system"),
+	)
+
+	dataPlaneClient := kubetest.NewFakeK8sClient(
+		kubetest.FakeNamespace("external-istiod"),
+		kubetest.FakeNamespace("bookinfo"),
+	)
+
+	dataPlaneRemoteClient := kubetest.NewFakeK8sClient(
+		&core_v1.Namespace{ObjectMeta: v1.ObjectMeta{
+			Name:        "external-istiod",
+			Annotations: map[string]string{business.IstioControlPlaneClustersLabel: "dataplane"},
+			Labels:      map[string]string{"kubernetes.io/metadata.name": "external-istiod"},
+		}},
+		kubetest.FakeNamespace("bookinfo"),
+	)
+
+	clients := map[string]kubernetes.ClientInterface{
+		"controlplane":     controlPlaneClient,
+		"dataplane":        dataPlaneClient,
+		"dataplane-remote": dataPlaneRemoteClient,
+	}
+
+	kialiCache := cache.NewTestingCacheWithClients(t, clients, *conf)
+	discovery := istio.NewDiscovery(clients, kialiCache, conf)
+	ctx := context.TODO()
+
+	// Query for a cluster managed by the external CP.
+	meshClusters := discovery.GetClustersForMesh(ctx, "dataplane")
+	require.NotNil(meshClusters, "Should find mesh for dataplane cluster")
+	require.Len(meshClusters, 3, "External CP mesh should include controlplane (CP host), dataplane, and dataplane-remote")
+	require.Contains(meshClusters, "controlplane")
+	require.Contains(meshClusters, "dataplane")
+	require.Contains(meshClusters, "dataplane-remote")
+
+	// Query for the local control plane's own cluster.
+	meshClustersLocal := discovery.GetClustersForMesh(ctx, "controlplane")
+	require.NotNil(meshClustersLocal, "Should find mesh for controlplane cluster")
+	require.Len(meshClustersLocal, 1, "Local CP mesh should only include controlplane itself")
+	require.Contains(meshClustersLocal, "controlplane")
+
+	// Query for a cluster not in any mesh.
+	meshClustersUnknown := discovery.GetClustersForMesh(ctx, "unknown-cluster")
+	require.Nil(meshClustersUnknown, "Should return nil for unknown cluster")
+}
+
+// TestGetClustersForMeshSingleCluster verifies that GetClustersForMesh works
+// in the standard single-cluster deployment (no remote clusters).
+func TestGetClustersForMeshSingleCluster(t *testing.T) {
+	require := require.New(t)
+	conf := config.NewConfig()
+	conf.KubernetesConfig.ClusterName = "east"
+
+	const configMapData = `accessLogFile: /dev/stdout
+enableAutoMtls: true
+rootNamespace: istio-system
+trustDomain: cluster.local
+`
+	istioConfigMap := &core_v1.ConfigMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "istio",
+			Namespace: "istio-system",
+			Labels:    map[string]string{config.IstioRevisionLabel: "default"},
+		},
+		Data: map[string]string{"mesh": configMapData},
+	}
+	k8s := kubetest.NewFakeK8sClient(
+		kubetest.FakeNamespace("istio-system"),
+		fakeIstiodDeployment("east", false),
+		istioConfigMap,
+		certtest.FakeIstioCertificateConfigMap("istio-system"),
+	)
+
+	clients := map[string]kubernetes.ClientInterface{"east": k8s}
+	kialiCache := cache.NewTestingCacheWithClients(t, clients, *conf)
+	discovery := istio.NewDiscovery(clients, kialiCache, conf)
+	ctx := context.TODO()
+
+	meshClusters := discovery.GetClustersForMesh(ctx, "east")
+	require.NotNil(meshClusters, "Should find mesh for the single cluster")
+	require.Len(meshClusters, 1)
+	require.Contains(meshClusters, "east")
+}

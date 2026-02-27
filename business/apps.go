@@ -288,6 +288,7 @@ func (in *AppService) GetAppList(ctx context.Context, criteria AppCriteria) (mod
 	}
 
 	icCriteria := IstioConfigCriteria{
+		Cluster:                       criteria.Cluster,
 		IncludeAuthorizationPolicies:  true,
 		IncludeDestinationRules:       true,
 		IncludeEnvoyFilters:           true,

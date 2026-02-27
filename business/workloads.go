@@ -326,6 +326,7 @@ func (in *WorkloadService) GetWorkloadList(ctx context.Context, criteria Workloa
 
 	if criteria.IncludeIstioResources {
 		istioConfigCriteria := IstioConfigCriteria{
+			Cluster:                       criteria.Cluster,
 			IncludeAuthorizationPolicies:  true,
 			IncludeEnvoyFilters:           true,
 			IncludeGateways:               true,

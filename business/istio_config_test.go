@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kiali/kiali/config"
+	"github.com/kiali/kiali/istio/istiotest"
 	"github.com/kiali/kiali/kubernetes"
 	"github.com/kiali/kiali/kubernetes/kubetest"
 	"github.com/kiali/kiali/models"
@@ -209,6 +210,106 @@ func TestCheckMulticlusterPermissions(t *testing.T) {
 	assert.True(istioConfigDetailsRemote.Permissions.Update)
 	assert.False(istioConfigDetailsRemote.Permissions.Delete)
 	assert.Nil(err)
+}
+
+// TestGetIstioConfigMapScopedToMesh verifies that GetIstioConfigMap only queries
+// clusters belonging to the same mesh when criteria.Cluster is set. This enables
+// multi-mesh deployments where different control planes manage different clusters.
+func TestGetIstioConfigMapScopedToMesh(t *testing.T) {
+	require := require.New(t)
+	conf := config.NewConfig()
+	conf.KubernetesConfig.ClusterName = "home"
+	config.Set(conf)
+
+	// Create two clusters: "home" and "remote". The discovery reports that
+	// "remote" is the only cluster in its mesh — so when we query with
+	// Cluster="remote", we should NOT get results from "home".
+	homeObjects := []runtime.Object{
+		&core_v1.Namespace{ObjectMeta: meta_v1.ObjectMeta{Name: "test"}},
+		data.CreateEmptyGateway("home-gw", "test", map[string]string{"app": "home-gw-controller"}),
+	}
+	remoteObjects := []runtime.Object{
+		&core_v1.Namespace{ObjectMeta: meta_v1.ObjectMeta{Name: "test"}},
+		data.CreateEmptyGateway("remote-gw", "test", map[string]string{"app": "remote-gw-controller"}),
+	}
+
+	homeClient := kubetest.NewFakeK8sClient(homeObjects...)
+	remoteClient := kubetest.NewFakeK8sClient(remoteObjects...)
+
+	k8sclients := map[string]kubernetes.UserClientInterface{
+		"home":   &fakeAccessReview{homeClient},
+		"remote": &fakeAccessReview{remoteClient},
+	}
+
+	// Discovery returns only ["remote"] for GetClustersForMesh("remote"),
+	// meaning "home" is NOT part of "remote"'s mesh.
+	discovery := &istiotest.FakeDiscovery{
+		GetClustersForMeshReturn: []string{"remote"},
+	}
+
+	configService := NewLayerBuilder(t, conf).
+		WithClients(k8sclients).
+		WithDiscovery(discovery).
+		Build().IstioConfig
+
+	// Query with Cluster="remote" — should only get remote cluster's resources.
+	criteria := IstioConfigCriteria{
+		Cluster:         "remote",
+		IncludeGateways: true,
+	}
+	istioConfigMap, err := configService.GetIstioConfigMap(context.TODO(), "test", criteria)
+	require.NoError(err)
+
+	// Only "remote" should be in the result set.
+	require.Len(istioConfigMap, 1, "Should only query the mesh-scoped cluster")
+	require.Contains(istioConfigMap, "remote")
+	require.NotContains(istioConfigMap, "home")
+	require.Len(istioConfigMap["remote"].Gateways, 1)
+	require.Equal("remote-gw", istioConfigMap["remote"].Gateways[0].Name)
+}
+
+// TestGetIstioConfigMapNoScopingWhenClusterEmpty verifies that when criteria.Cluster
+// is empty, GetIstioConfigMap queries ALL clusters (backward compatible behavior).
+func TestGetIstioConfigMapNoScopingWhenClusterEmpty(t *testing.T) {
+	require := require.New(t)
+	conf := config.NewConfig()
+	conf.KubernetesConfig.ClusterName = "home"
+	config.Set(conf)
+
+	homeObjects := []runtime.Object{
+		&core_v1.Namespace{ObjectMeta: meta_v1.ObjectMeta{Name: "test"}},
+		data.CreateEmptyGateway("home-gw", "test", map[string]string{"app": "home-gw-controller"}),
+	}
+	remoteObjects := []runtime.Object{
+		&core_v1.Namespace{ObjectMeta: meta_v1.ObjectMeta{Name: "test"}},
+		data.CreateEmptyGateway("remote-gw", "test", map[string]string{"app": "remote-gw-controller"}),
+	}
+
+	homeClient := kubetest.NewFakeK8sClient(homeObjects...)
+	remoteClient := kubetest.NewFakeK8sClient(remoteObjects...)
+
+	k8sclients := map[string]kubernetes.UserClientInterface{
+		"home":   &fakeAccessReview{homeClient},
+		"remote": &fakeAccessReview{remoteClient},
+	}
+
+	discovery := &istiotest.FakeDiscovery{}
+
+	configService := NewLayerBuilder(t, conf).
+		WithClients(k8sclients).
+		WithDiscovery(discovery).
+		Build().IstioConfig
+
+	// Query without Cluster — should get ALL clusters.
+	criteria := IstioConfigCriteria{
+		IncludeGateways: true,
+	}
+	istioConfigMap, err := configService.GetIstioConfigMap(context.TODO(), "test", criteria)
+	require.NoError(err)
+
+	require.Len(istioConfigMap, 2, "Should query all clusters when Cluster is empty")
+	require.Contains(istioConfigMap, "home")
+	require.Contains(istioConfigMap, "remote")
 }
 
 func mockGetIstioConfigList(t *testing.T) IstioConfigService {

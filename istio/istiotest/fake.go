@@ -11,6 +11,8 @@ import (
 type FakeDiscovery struct {
 	// ClustersReturn is the return value of Clusters().
 	ClustersReturn []models.KubeCluster
+	// GetClustersForMeshReturn is the return value of GetClustersForMesh().
+	GetClustersForMeshReturn []string
 	// GetControlPlaneNamespacesReturn is the return value of GetControlPlaneNamespaces().
 	GetControlPlaneNamespacesReturn []string
 	// GetRootNamespaceReturn is the return value of GetRootNamespace().
@@ -23,6 +25,10 @@ type FakeDiscovery struct {
 
 func (fmd *FakeDiscovery) Clusters() []models.KubeCluster {
 	return fmd.ClustersReturn
+}
+
+func (fmd *FakeDiscovery) GetClustersForMesh(ctx context.Context, cluster string) []string {
+	return fmd.GetClustersForMeshReturn
 }
 
 func (fmd *FakeDiscovery) GetControlPlaneNamespaces(ctx context.Context, cluster string) []string {

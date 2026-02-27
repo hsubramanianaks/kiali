@@ -244,6 +244,7 @@ func sidecarInjectorConfigMapName(revision string) string {
 
 type MeshDiscovery interface {
 	Clusters() []models.KubeCluster
+	GetClustersForMesh(ctx context.Context, cluster string) []string
 	GetControlPlaneNamespaces(ctx context.Context, cluster string) []string
 	GetRootNamespace(ctx context.Context, cluster, namespace string) string
 	IsControlPlane(ctx context.Context, cluster, namespace string) bool
@@ -312,6 +313,44 @@ func (in *Discovery) GetControlPlaneNamespaces(ctx context.Context, cluster stri
 	}
 
 	return maps.Keys(namespaces)
+}
+
+// GetClustersForMesh returns all cluster names that belong to the same mesh
+// (i.e., managed by the same control plane) as the given cluster. This enables
+// mesh-aware scoping in the business layer so that multi-mesh deployments
+// (multiple control planes on the same cluster) only query relevant clusters.
+// Returns nil if the cluster is not found in any mesh, which signals the caller
+// to fall back to querying all clusters (preserving backward compatibility).
+func (in *Discovery) GetClustersForMesh(ctx context.Context, cluster string) []string {
+	mesh, err := in.Mesh(ctx)
+	if err != nil || mesh == nil {
+		return nil
+	}
+
+	for _, cp := range mesh.ControlPlanes {
+		found := false
+		for _, mc := range cp.ManagedClusters {
+			if mc.Name == cluster {
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+
+		// Collect all clusters in this mesh: managed clusters + the CP cluster itself.
+		clusterSet := map[string]bool{}
+		for _, mc := range cp.ManagedClusters {
+			clusterSet[mc.Name] = true
+		}
+		if cp.Cluster != nil {
+			clusterSet[cp.Cluster.Name] = true
+		}
+		return maps.Keys(clusterSet)
+	}
+
+	return nil
 }
 
 // IsControlPlane returns true if the cluster-namespace is an istio control plane. If cluster == "" it
