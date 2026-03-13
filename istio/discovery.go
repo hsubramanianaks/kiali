@@ -526,7 +526,17 @@ func (in *Discovery) Mesh(ctx context.Context) (*models.Mesh, error) {
 		if err != nil {
 			return nil, err
 		}
-		istiods := depList.Items
+
+		// Filter out istiod deployments in excluded namespaces
+		excludedNamespaces := in.conf.ExternalServices.Istio.ExcludedControlPlaneNamespaces
+		var istiods []appsv1.Deployment
+		for _, d := range depList.Items {
+			if sliceutil.Some(excludedNamespaces, func(ns string) bool { return ns == d.Namespace }) {
+				log.Infof("Excluding controlplane [%s/%s] on cluster [%s] (namespace is in excluded_control_plane_namespaces).", d.Name, d.Namespace, cluster.Name)
+				continue
+			}
+			istiods = append(istiods, d)
+		}
 
 		if len(istiods) == 0 {
 			log.Tracef("Cluster [%s] is a remote cluster. Skipping adding a controlplane.", cluster.Name)

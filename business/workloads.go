@@ -57,14 +57,20 @@ func NewWorkloadService(
 		excludedWorkloads[w] = true
 	}
 
+	excludedWorkloadNames := make(map[string]bool)
+	for _, name := range conf.KubernetesConfig.ExcludeWorkloadNames {
+		excludedWorkloadNames[name] = true
+	}
+
 	return &WorkloadService{
-		businessLayer:     layer,
-		cache:             cache,
-		conf:              conf,
-		excludedWorkloads: excludedWorkloads,
-		prom:              prom,
-		userClients:       userClients,
-		kialiSAClients:    kialiSAclients,
+		businessLayer:         layer,
+		cache:                 cache,
+		conf:                  conf,
+		excludedWorkloads:     excludedWorkloads,
+		excludedWorkloadNames: excludedWorkloadNames,
+		prom:                  prom,
+		userClients:           userClients,
+		kialiSAClients:        kialiSAclients,
 	}
 }
 
@@ -76,6 +82,7 @@ type WorkloadService struct {
 	cache cache.KialiCache
 	// The global kiali conf.
 	conf              *config.Config
+	excludedWorkloadNames map[string]bool
 	excludedWorkloads map[string]bool
 	grafana           *grafana.Service
 	prom              prometheus.ClientInterface
@@ -1641,10 +1648,15 @@ func (in *WorkloadService) fetchWorkloadsFromCluster(ctx context.Context, cluste
 			ws = append(ws, w)
 		}
 	}
+	// Filter out workloads by name if excluded_workload_names is configured
+	if len(in.excludedWorkloadNames) > 0 {
+		ws = sliceutil.Filter(ws, func(w *models.Workload) bool {
+			return !in.excludedWorkloadNames[w.Name]
+		})
+	}
+
 	return ws, nil
 }
-
-// Key: namespace:name of controller; Value: GVK of controller
 type controllerMap map[string]schema.GroupVersionKind
 
 func newControllerMap() controllerMap {
